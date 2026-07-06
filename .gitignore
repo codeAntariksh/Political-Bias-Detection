@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+*.egg-info/
+.venv/
+venv/
+
+# Data & artifacts (large / generated — see data/README.md)
+data/*.csv
+data/features/*.npy
+checkpoints/*.pt
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

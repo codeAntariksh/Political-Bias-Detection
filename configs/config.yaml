@@ -1,0 +1,32 @@
+# Default hyperparameters for the Issue-Topic Guided Cross-Attention model.
+
+data:
+  csv_path: data/allsides.csv
+  features_dir: data/features
+  max_lengths:
+    issue: 16
+    topic: 16
+    Title: 32
+    News_Body: 128
+
+model:
+  d_model: 768
+  ctx_num_heads: 4
+  ctx_ff_dim: 1536
+  num_context_layers: 2
+  cross_num_heads: 8
+  cross_ff_dim: 3072
+  num_cross_layers: 4
+  dropout: 0.10
+  num_classes: 3
+
+training:
+  epochs: 50
+  batch_size: 16
+  early_stop_patience: 10
+  deberta_lr: 5e-6
+  heads_lr: 2e-4
+  weight_decay: 1e-2
+  grad_clip_norm: 1.0
+  warmup_ratio: 0.10
+  deberta_unfreeze_top_layers: 4
