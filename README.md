@@ -76,14 +76,17 @@ fields and hoping the classifier figures it out.
 └── requirements.txt
 ```
 
-## Setup
+### 🚀 Quickstart: Running Inference
+ The script will automatically download the pre-trained `best_model.pt` weights from Hugging Face Hub repository—no manual file handling is required.
 
+#### 1. Clone & Setup
 ```bash
-git clone https://github.com/<your-username>/political-bias-detection.git
-cd political-bias-detection
-pip install -r requirements.txt
-```
+# Clone the repository
+git clone [https://github.com/codeAntariksh/Political-Bias-Detection.git](https://github.com/codeAntariksh/Political-Bias-Detection.git)
+cd Political-Bias-Detection
 
+# Install the required dependencies
+pip install -r requirements.txt
 ## Usage
 
 1. **Get the data.** Place the full AllSides CSV at `data/allsides.csv`
