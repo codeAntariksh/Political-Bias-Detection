@@ -1,78 +1,95 @@
-# Political Bias Detection — Issue-Topic Guided Cross-Attention Framework
+# Political Bias Detection
 
-A deep learning system that classifies news articles as **Left / Center /
-Right** by modeling how a story's *headline* and *body* are framed in the
-context of its underlying **issue** and **topic** — instead of treating bias
-detection as plain text classification.
+A deep learning system that classifies news articles as **Liberal (Left) /
+Center / Conservative (Right)** by reasoning about a story's *headline +
+body* jointly with its underlying **issue** and **topic** — instead of
+treating bias detection as plain text classification.
 
-Built on **DeBERTa-v3-base**, with a custom cross-attention + gated-fusion
-head trained on the AllSides dataset.
+> **Fastest way to try it:** clone the repo, `pip install -r requirements.txt`,
+> then run `python predict.py`. The trained model weights are hosted on
+> Hugging Face Hub and are **downloaded automatically on first run** — no
+> manual file downloads, no dataset, no GPU setup required.
+
+## What this project does
+
+Two articles can report the same facts but frame them very differently
+depending on context (e.g. a healthcare story framed around "protecting
+families" vs. "government overreach"). This project feeds the model that
+context explicitly, so it learns which parts of the headline and body are
+diagnostic of bias *given* the issue/topic, rather than judging the text in
+isolation.
+
+**Inputs** (four fields per article):
+| Field       | Description                              |
+|-------------|-------------------------------------------|
+| `Issue`     | Broad issue area, e.g. `Healthcare`        |
+| `Topic`     | Narrower sub-topic, e.g. `Drug Pricing`    |
+| `Headline`  | The article's title                        |
+| `News Body` | The full article text                      |
+
+**Output:** a predicted class — `Liberal(left)`, `Center`, or
+`Conservative(right)` — plus a softmax confidence score for all three
+classes.
+
+## Model architecture (currently deployed — used by `predict.py`)
+
+The shipped model is a **multi-encoder RoBERTa architecture with gated
+cross-modality fusion**, built on top of [`jayanta/roberta-news-bias`](https://huggingface.co/jayanta/roberta-news-bias)
+as the pretrained backbone:
 
 ```
-Issue + Topic ──► Issue-Topic Context Encoder ──► Cross-Attention (Headline) ─┐
-                                              └──► Cross-Attention (Body)    ──┼─► Gated Fusion ─► Classifier ─► Left / Center / Right
+Headline + Body ──► News Encoder (RoBERTa)   ──┐
+Issue            ──► Issue Encoder (RoBERTa)  ──┼─► Gated Cross-Modality Fusion ──► Classifier ──► Liberal / Center / Conservative
+Topic            ──► Topic Encoder (RoBERTa)  ──┘
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the full design
-rationale and diagram.
+- **Three RoBERTa encoders** — one for the combined headline+body text, and
+  one each for issue and topic — each producing a pooled embedding (CLS +
+  mean-pooled tokens).
+- **Gated cross-modality attention** — the news embedding is projected into
+  query/key/value vectors, and issue/topic embeddings are blended in via a
+  learned sigmoid gate rather than simple concatenation, so the model can
+  adaptively weight how much the issue/topic context should influence the
+  final representation for a given article.
+- **Fusion + classification head** — the news, gated-issue, gated-topic, and
+  value representations are concatenated (2304-d) and passed through a
+  GELU/LayerNorm/Dropout classifier head to produce 3-class logits.
 
-## Why this approach
+**Reported performance** (held-out test split, 917 articles, balanced
+~305/class): **55.5% accuracy**, macro-F1 ≈ 0.55. Full per-class
+precision/recall/F1 is in [`notebooks/roberta-news-bias-detection.ipynb`](notebooks/roberta-news-bias-detection.ipynb).
 
-Two outlets can report the same event with near-identical facts yet frame it
-very differently — e.g. an immigration story framed around humanitarian
-concerns vs. national security. That framing is contextual: it depends on
-*what issue and topic* are being discussed. This project makes that context
-explicit and lets the model learn, via cross-attention, which parts of the
-headline and body matter given that context — rather than concatenating all
-fields and hoping the classifier figures it out.
-
-## Key design choices
-
-- **Token-level features, not CLS pooling.** DeBERTa's `last_hidden_state`
-  is kept as a full sequence per field (`issue`, `topic`, `title`, `body`),
-  so cross-attention has real sequences to attend over instead of a single
-  pooled vector.
-- **Issue-Topic Context Encoder.** Issue and topic token sequences are
-  concatenated and passed through a small self-attention encoder, producing
-  a unified context representation used as the *query* downstream.
-- **Dual cross-attention branches.** Separate stacks for headline and body,
-  each queried by the issue-topic context — this is the main departure from
-  a concatenate-and-classify baseline.
-- **Learnable attention pooling.** Replaces mean pooling with a
-  softmax-weighted sum so the model can emphasize the most diagnostic
-  tokens.
-- **Gated fusion.** A learned gate adaptively weights headline vs. body
-  signal per article (some articles reveal bias mainly in the headline,
-  others mainly in the body), with gate-collapse monitoring during training.
-- **Class-weighted loss + differential learning rates.** DeBERTa's unfrozen
-  top layers train at `5e-6`; task-specific modules train at `2e-4`.
-  Cross-entropy is class-weighted to handle AllSides' label imbalance.
+> **Note on `src/` and the original notebook:** this repo also contains an
+> earlier, separate architecture (`src/` package, `configs/config.yaml`,
+> [`docs/architecture.md`](docs/architecture.md), `notebooks/political_bias_v3.ipynb`) —
+> a DeBERTa-v3 cross-attention + gated-fusion design. That pipeline
+> (`extract_features.py` → `train.py` → `evaluate.py`) is a self-contained,
+> earlier iteration of this idea and is **not** what `predict.py` currently
+> runs. `predict.py` uses the newer, self-contained RoBERTa architecture
+> defined directly inside it. Treat `src/` as the original research
+> implementation, and `predict.py` as the current, working, easiest way to
+> get a prediction end-to-end.
 
 ## Repository structure
 
 ```
-├── src/
+├── predict.py                    # ⭐ run this — interactive CLI inference, auto-downloads weights from HF Hub
+├── src/                           # original DeBERTa cross-attention framework (research implementation)
 │   ├── data/
-│   │   ├── preprocessing.py     # CSV loading, label encoding, TokenExtractor (DeBERTa)
-│   │   └── dataset.py           # AllSidesDataset (PyTorch Dataset)
 │   ├── models/
-│   │   ├── issue_topic_encoder.py
-│   │   ├── cross_attention.py
-│   │   ├── pooling.py
-│   │   ├── gated_fusion.py
-│   │   ├── classifier.py
-│   │   └── political_bias_model.py   # assembles the full model
-│   ├── extract_features.py      # cache DeBERTa token sequences to disk
-│   ├── train.py                 # training loop (early stopping, gate diagnostics)
-│   └── evaluate.py               # test-set evaluation + classification report
-├── configs/config.yaml          # hyperparameters
+│   ├── extract_features.py
+│   ├── train.py
+│   └── evaluate.py
+├── configs/config.yaml           # hyperparameters for the src/ pipeline
 ├── docs/
-│   ├── architecture.md          # full design write-up
-│   └── research_notes.md        # documented future-work direction
-├── notebooks/political_bias_v3.ipynb  # original exploratory notebook
+│   ├── architecture.md           # design write-up for the src/ (DeBERTa) framework
+│   └── research_notes.md         # documented future-work direction
+├── notebooks/
+│   ├── political_bias_v3.ipynb            # original DeBERTa cross-attention exploration
+│   └── roberta-news-bias-detection.ipynb  # training notebook for the current deployed RoBERTa model
 ├── data/
-│   ├── README.md                # dataset setup instructions
-│   └── sample_allsides.csv      # 45-row sample for a quick smoke test
+│   ├── README.md                 # dataset setup instructions
+│   └── sample_allsides.csv       # 45-row sample for a quick smoke test
 └── requirements.txt
 ```
 
@@ -84,49 +101,70 @@ cd political-bias-detection
 pip install -r requirements.txt
 ```
 
+That's it — no dataset download and no checkpoint download needed just to
+try a prediction (see below).
+
 ## Usage
 
-1. **Get the data.** Place the full AllSides CSV at `data/allsides.csv`
-   (see [`data/README.md`](data/README.md)), or use the bundled
-   `data/sample_allsides.csv` for a quick smoke test.
+### Run inference (recommended — works out of the box)
 
-2. **Extract DeBERTa features** (one-time; cached to disk):
-   ```bash
-   python -m src.extract_features --csv data/allsides.csv --out data/features
-   ```
+```bash
+python predict.py
+```
 
-3. **Train:**
-   ```bash
-   python -m src.train --features data/features --out checkpoints/best_model.pt
-   ```
+On first run this will:
+1. Download the trained classifier checkpoint (`best_model.pt`) from the
+   project's Hugging Face model repo, since it isn't found locally.
+2. Prompt you for **Issue**, **Topic**, **Headline**, and **News Body**.
+3. Print the predicted bias with a full confidence breakdown.
 
-4. **Evaluate on the held-out test split:**
-   ```bash
-   python -m src.evaluate --features data/features --checkpoint checkpoints/best_model.pt
-   ```
+You can also point it at a checkpoint you already have locally:
+```bash
+python predict.py --checkpoint /path/to/best_model.pt
+```
 
-## Model I/O shapes (batch size B)
+#### Worked example
 
-| Field  | Shape          |
-|--------|----------------|
-| issue  | `[B, 16, 768]` |
-| topic  | `[B, 16, 768]` |
-| title  | `[B, 32, 768]` |
-| body   | `[B, 128, 768]`|
-| logits | `[B, 3]`       |
+**Input:**
+- Issue: `Healthcare`
+- Topic: `Drug Pricing`
+- Headline: `Lawmakers Propose Cap on Skyrocketing Prescription Drug Prices to Protect Working Families`
+- News Body:
+  > In a major push to make healthcare more accessible, a new legislative
+  > framework would impose strict caps on the skyrocketing cost of
+  > life-saving medications. Consumer advocates have long condemned Big
+  > Pharma for rampant price gouging that forces millions of working
+  > families to ration their prescriptions. Sponsors of the bill maintain
+  > that healthcare should be a fundamental human right, not a
+  > profit-driven enterprise designed to enrich corporate shareholders.
+
+**Output:**
+```
+---------------Prediction---------------------
+Predicted Bias : Liberal(Left)
+Class Probabilities:
+Liberal(Left) : 63.36%  <-----predicted
+Center: 29.86%
+Conservative: 6.78%
+--------------------------------------------------------------
+```
+
+#### How to read the output
+
+- **Predicted Bias** — the single class the model considers most likely
+  (highest probability).
+- **Class Probabilities** — a softmax distribution over all three classes
+  (sums to ~100%), i.e. the model's confidence, not just a binary decision:
+  - A **lopsided** distribution (like 63% / 30% / 7% above) means the model
+    found strong framing cues pointing one direction.
+  - A **close** distribution (e.g. 40% / 35% / 25%) means the article's
+    framing was more ambiguous or mixed — treat the top prediction with
+    lower confidence in that case.
+
 
 ## Tech stack
 
-Python · PyTorch · Hugging Face Transformers (DeBERTa-v3-base) · scikit-learn · pandas / NumPy
-
-## Status & future work
-
-The core architecture (feature extraction → context encoding →
-cross-attention → gated fusion → classification) is implemented end-to-end
-and runnable via the scripts above. See
-[`docs/research_notes.md`](docs/research_notes.md) for a documented
-extension using framing-aware contrastive/triplet objectives, which is
-noted as future work rather than shipped code.
+Python · PyTorch · Hugging Face Transformers & Hub (RoBERTa) · scikit-learn · pandas / NumPy
 
 ## License
 
