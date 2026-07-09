@@ -10,8 +10,11 @@ venv/
 data/*.csv
 data/features/*.npy
 checkpoints/*.pt
+notebooks/*.pt
 
 # OS / editor
 .DS_Store
 .vscode/
 .idea/
+
+

@@ -93,13 +93,14 @@ precision/recall/F1 is in [`notebooks/roberta-news-bias-detection.ipynb`](notebo
 └── requirements.txt
 ```
 
-## Setup
+### 🚀 Quickstart: Running Inference
+ The script will automatically download the pre-trained `best_model.pt` weights from Hugging Face Hub repository—no manual file handling is required.
 
+#### 1. Clone & Setup
 ```bash
-git clone https://github.com/<your-username>/political-bias-detection.git
-cd political-bias-detection
-pip install -r requirements.txt
-```
+# Clone the repository
+git clone [https://github.com/codeAntariksh/Political-Bias-Detection.git](https://github.com/codeAntariksh/Political-Bias-Detection.git)
+cd Political-Bias-Detection
 
 That's it — no dataset download and no checkpoint download needed just to
 try a prediction (see below).
